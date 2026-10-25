@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Food Delivery System - DR Test Ready</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // --- DUMMY INITIAL DATABASE STATE ---
+        const INITIAL_MENU = [
+            { id: 1, name: "Nasi Goreng Spesial", price: 25000, category: "Makanan Utama", image: "https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=400" },
+            { id: 2, name: "Ayam Bakar Madu", price: 30000, category: "Makanan Utama", image: "https://images.unsplash.com/photo-1598515214211-89d3c73ae83b?w=400" },
+            { id: 3, name: "Es Teh Manis Jumbo", price: 5000, category: "Minuman", image: "https://images.unsplash.com/photo-1556679343-c7306c1976bc?w=400" },
+            { id: 4, name: "Kopi Susu Gula Aren", price: 18000, category: "Minuman", image: "https://images.unsplash.com/photo-1517701604599-bb29b565090c?w=400" },
+        ];
+
+        const INITIAL_ORDERS = [
+            {
+                id: "ORD-101",
+                customerName: "Ahmad Baihaqi",
+                items: [{ id: 1, name: "Nasi Goreng Spesial", price: 25000, qty: 2 }],
+                totalAmount: 50000,
+                status: "Sedang Disiapkan", // Kunci untuk DR Test Pertemuan 4
+                createdAt: new Date().toISOString()
+            }
+        ];
+
+        // --- MAIN APP COMPONENT ---
+        function App() {
+            const [activeTab, setActiveTab] = useState('catalog');
+            const [menu, setMenu] = useState(INITIAL_MENU);
+            const [orders, setOrders] = useState(() => {
+                const saved = localStorage.getItem('pg_simulated_db_orders');
+                return saved ? JSON.parse(saved) : INITIAL_ORDERS;
+            });
+            const [cart, setCart] = useState([]);
+            const [customerName, setCustomerName] = useState('Ari (Driver App UI)');
+
+            // Sync with simulated Postgres persistence
+            useEffect(() => {
+                localStorage.setItem('pg_simulated_db_orders', JSON.stringify(orders));
+            }, [orders]);
+
+            // Add to Cart
+            const addToCart = (item) => {
+                setCart(prev => {
+                    const existing = prev.find(i => i.id === item.id);
+                    if (existing) {
+                        return prev.map(i => i.id === item.id ? { ...i, qty: i.qty + 1 } : i);
+                    }
+                    return [...prev, { ...item, qty: 1 }];
+                });
+            };
+
+            // Create Order (Simulating POST /api/orders to Postgres)
+            const handleCheckout = () => {
+                if (cart.length === 0) return alert("Keranjang belanja kosong!");
+                
+                const newOrder = {
+                    id: `ORD-${Math.floor(1000 + Math.random() * 9000)}`,
+                    customerName: customerName || "Pelanggan Anonim",
+                    items: [...cart],
+                    totalAmount: cart.reduce((sum, item) => sum + (item.price * item.qty), 0),
+                    status: "Sedang Disiapkan", // Target status DR Test
+                    createdAt: new Date().toISOString()
+                };
+
+                setOrders([newOrder, ...orders]);
+                setCart([]);
+                setActiveTab('orders');
+                alert(`Pesanan ${newOrder.id} berhasil dibuat dengan status "Sedang Disiapkan"!`);
+            };
+
+            // Update Status (Simulating PATCH /api/orders/:id)
+            const updateOrderStatus = (orderId, newStatus) => {
+                setOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+            };
+
+            // --- DISASTER RECOVERY TEST FUNCTIONS ---
+            const triggerDisaster = () => {
+                if (confirm("⚠️ SIMULASI BENCANA (DR TEST): Apakah Anda yakin ingin MENGHAPUS SELURUH DATABASE (Crash Environment)?")) {
+                    localStorage.removeItem('pg_simulated_db_orders');
+                    setOrders([]);
+                    alert("🔴 SYSTEM CRASH! Database terhapus. Buka tab Disaster Recovery untuk melakukan Restore.");
+                }
+            };
+
+            const exportBackupJSON = () => {
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(orders, null, 2));
+                const downloadAnchor = document.createElement('a');
+                downloadAnchor.setAttribute("href", dataStr);
+                downloadAnchor.setAttribute("download", `pg_dump_backup_${Date.now()}.json`);
+                document.body.appendChild(downloadAnchor);
+                downloadAnchor.click();
+                downloadAnchor.remove();
+            };
+
+            const importBackupJSON = (event) => {
+                const fileReader = new FileReader();
+                fileReader.onload = (e) => {
+                    try {
+                        const restoredData = JSON.parse(e.target.result);
+                        setOrders(restoredData);
+                        alert("🟢 RESTORE SUCCESS! State pesanan berhasil dipulihkan sesuai skenario DRP.");
+                    } catch (err) {
+                        alert("Gagal membaca file dump backup.");
+                    }
+                };
+                if (event.target.files[0]) {
+                    fileReader.readAsText(event.target.files[0]);
+                }
+            };
+
+            return (
+                <div className="max-w-7xl mx-auto p-4 md:p-6">
+                    {/* Header Nav */}
+                    <header className="flex flex-col md:flex-row justify-between items-center pb-6 border-b border-slate-800 gap-4">
+                        <div>
+                            <h1 className="text-2xl font-bold bg-linear-to-r from-orange-400 to-amber-200 bg-clip-text text-transparent">
+                                FoodDelivery Cloud App
+                            </h1>
+                            <p className="text-sm text-slate-400">
+                                Kelompok 5 (Ari, Ahmad Baihaqi, Akhyan, Rifki) • PostgreSQL + Docker DRP
+                            </p>
+                        </div>
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={() => setActiveTab('catalog')}
+                                className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${activeTab === 'catalog' ? 'bg-orange-500 text-white' : 'bg-slate-900 hover:bg-slate-800 text-slate-300'}`}>
+                                Menu & Katalog
+                            </button>
+                            <button 
+                                onClick={() => setActiveTab('orders')}
+                                className={`px-4 py-2 rounded-xl text-sm font-semibold transition relative ${activeTab === 'orders' ? 'bg-orange-500 text-white' : 'bg-slate-900 hover:bg-slate-800 text-slate-300'}`}>
+                                Status Pesanan
+                                {orders.length > 0 && (
+                                    <span className="ml-2 bg-amber-400 text-slate-950 font-bold px-2 py-0.5 rounded-full text-xs">
+                                        {orders.length}
+                                    </span>
+                                )}
+                            </button>
+                            <button 
+                                onClick={() => setActiveTab('drp')}
+                                className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${activeTab === 'drp' ? 'bg-red-600 text-white' : 'bg-red-950/40 text-red-400 border border-red-900/50 hover:bg-red-900/30'}`}>
+                                🛡️ DR Test Panel
+                            </button>
+                        </div>
+                    </header>
+
+                    {/* MAIN CONTENT AREA */}
+                    <main className="mt-6">
+                        {/* TAB 1: CATALOG & CART */}
+                        {activeTab === 'catalog' && (
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {menu.map((item) => (
+                                        <div key={item.id} className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden hover:border-slate-700 transition flex flex-col">
+                                            <img src={item.image} alt={item.name} className="h-40 w-full object-cover" />
+                                            <div className="p-4 flex-1 flex flex-col justify-between">
+                                                <div>
+                                                    <span className="text-xs bg-slate-800 text-amber-400 px-2.5 py-1 rounded-md font-medium">
+                                                        {item.category}
+                                                    </span>
+                                                    <h3 className="font-bold text-lg mt-2">{item.name}</h3>
+                                                </div>
+                                                <div className="flex justify-between items-center mt-4">
+                                                    <span className="font-bold text-orange-400">
+                                                        Rp {item.price.toLocaleString('id-ID')}
+                                                    </span>
+                                                    <button 
+                                                        onClick={() => addToCart(item)}
+                                                        className="bg-orange-500/20 hover:bg-orange-500 text-orange-400 hover:text-white border border-orange-500/30 px-3 py-1.5 rounded-lg text-sm font-semibold transition">
+                                                        + Tambah
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Cart Widget */}
+                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 h-fit">
+                                    <h2 className="text-lg font-bold border-b border-slate-800 pb-3">Ringkasan Pesanan</h2>
+                                    <div className="mt-4 space-y-3">
+                                        <input 
+                                            type="text" 
+                                            placeholder="Nama Pemesan / Driver" 
+                                            value={customerName}
+                                            onChange={(e) => setCustomerName(e.target.value)}
+                                            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm focus:outline-none focus:border-orange-500"
+                                        />
+                                        
+                                        {cart.length === 0 ? (
+                                            <p className="text-slate-500 text-sm py-4 text-center">Keranjang masih kosong</p>
+                                        ) : (
+                                            cart.map((c) => (
+                                                <div key={c.id} className="flex justify-between items-center text-sm py-1">
+                                                    <div>
+                                                        <p className="font-medium">{c.name}</p>
+                                                        <p className="text-xs text-slate-400">{c.qty} x Rp {c.price.toLocaleString()}</p>
+                                                    </div>
+                                                    <span className="font-semibold">Rp {(c.qty * c.price).toLocaleString()}</span>
+                                                </div>
+                                            ))
+                                        )}
+
+                                        <div className="border-t border-slate-800 pt-3 mt-3 flex justify-between font-bold">
+                                            <span>Total:</span>
+                                            <span className="text-orange-400">
+                                                Rp {cart.reduce((s, i) => s + (i.price * i.qty), 0).toLocaleString()}
+                                            </span>
+                                        </div>
+
+                                        <button 
+                                            onClick={handleCheckout}
+                                            className="w-full bg-orange-500 hover:bg-orange-600 font-bold py-3 rounded-xl transition text-white mt-2">
+                                            Kirim Pesanan (Set "Sedang Disiapkan")
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* TAB 2: ORDER STATUS MONITOR (CRUCIAL FOR DR TEST) */}
+                        {activeTab === 'orders' && (
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <h2 className="text-xl font-bold">Daftar Transaksi / State Pesanan (Postgres DB)</h2>
+                                    <span className="text-xs text-slate-400 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg">
+                                        Total Active Orders: {orders.length}
+                                    </span>
+                                </div>
+
+                                {orders.length === 0 ? (
+                                    <div className="bg-slate-900/50 border border-slate-800 border-dashed rounded-2xl p-12 text-center">
+                                        <p className="text-slate-400 font-medium">⚠️ Tidak ada data pesanan di Database!</p>
+                                        <p className="text-xs text-slate-500 mt-1">Sistem mungkin telah mengalami crash/wipe (DR Test Mode).</p>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {orders.map((ord) => (
+                                            <div key={ord.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 relative overflow-hidden">
+                                                {/* Status Indicator Bar */}
+                                                <div className={`absolute top-0 left-0 right-0 h-1 ${
+                                                    ord.status === 'Sedang Disiapkan' ? 'bg-amber-500' :
+                                                    ord.status === 'Diantar' ? 'bg-blue-500' : 'bg-emerald-500'
+                                                }`} />
+
+                                                <div className="flex justify-between items-start mt-1">
+                                                    <div>
+                                                        <span className="text-xs text-slate-400 font-mono">{ord.id}</span>
+                                                        <h3 className="font-bold text-lg">{ord.customerName}</h3>
+                                                    </div>
+                                                    <span className={`text-xs px-3 py-1 rounded-full font-bold border ${
+                                                        ord.status === 'Sedang Disiapkan' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' :
+                                                        ord.status === 'Diantar' ? 'bg-blue-500/10 text-blue-400 border-blue-500/30' :
+                                                        'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                                    }`}>
+                                                        {ord.status}
+                                                    </span>
+                                                </div>
+
+                                                <div className="my-3 border-y border-slate-800/80 py-2 space-y-1">
+                                                    {ord.items.map((it, idx) => (
+                                                        <p key={idx} className="text-xs text-slate-300 flex justify-between">
+                                                            <span>{it.qty}x {it.name}</span>
+                                                            <span>Rp {(it.qty * it.price).toLocaleString()}</span>
+                                                        </p>
+                                                    ))}
+                                                </div>
+
+                                                <div className="flex justify-between items-center text-xs">
+                                                    <span className="text-slate-400">Total: <strong className="text-white text-sm">Rp {ord.totalAmount.toLocaleString()}</strong></span>
+                                                    <div className="flex gap-1">
+                                                        <button 
+                                                            onClick={() => updateOrderStatus(ord.id, 'Sedang Disiapkan')}
+                                                            className="bg-slate-800 hover:bg-slate-700 text-amber-400 text-[10px] px-2 py-1 rounded">
+                                                            Disiapkan
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => updateOrderStatus(ord.id, 'Diantar')}
+                                                            className="bg-slate-800 hover:bg-slate-700 text-blue-400 text-[10px] px-2 py-1 rounded">
+                                                            Diantar
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => updateOrderStatus(ord.id, 'Selesai')}
+                                                            className="bg-slate-800 hover:bg-slate-700 text-emerald-400 text-[10px] px-2 py-1 rounded">
+                                                            Selesai
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* TAB 3: DISASTER RECOVERY TEST CONTROL PANEL */}
+                        {activeTab === 'drp' && (
+                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
+                                <div>
+                                    <h2 className="text-xl font-bold text-red-400 flex items-center gap-2">
+                                        🛡️ Panel Simulasi Disaster Recovery (Pertemuan 4)
+                                    </h2>
+                                    <p className="text-sm text-slate-400 mt-1">
+                                        Gunakan panel ini untuk mensimulasikan kegagalan total server/database dan pengujian RTO/RPO Kelompok 5.
+                                    </p>
+                                </div>
+
+                                {/* Step-by-step DR Testing */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    {/* Step 1 */}
+                                    <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
+                                        <span className="bg-slate-800 text-slate-300 text-xs px-2.5 py-1 rounded font-bold">Langkah 1</span>
+                                        <h3 className="font-bold text-sm">Backup Database (Dump)</h3>
+                                        <p className="text-xs text-slate-400">Simulasi skrip cron/bash otomatis pembuatan dump SQL/JSON.</p>
+                                        <button 
+                                            onClick={exportBackupJSON}
+                                            className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold py-2 rounded-lg transition">
+                                            📥 Download PG Dump (JSON)
+                                        </button>
+                                    </div>
+
+                                    {/* Step 2 */}
+                                    <div className="bg-red-950/20 border border-red-900/50 p-4 rounded-xl space-y-3">
+                                        <span className="bg-red-900 text-red-200 text-xs px-2.5 py-1 rounded font-bold">Langkah 2</span>
+                                        <h3 className="font-bold text-sm text-red-400">Simulasi Disaster / Crash</h3>
+                                        <p className="text-xs text-slate-400">Hapus container & volume DB saat ada pesanan "Sedang Disiapkan".</p>
+                                        <button 
+                                            onClick={triggerDisaster}
+                                            className="w-full bg-red-600 hover:bg-red-700 text-xs font-bold py-2 rounded-lg transition text-white">
+                                            💥 Crash System & Wipe DB
+                                        </button>
+                                    </div>
+
+                                    {/* Step 3 */}
+                                    <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
+                                        <span className="bg-emerald-900/80 text-emerald-200 text-xs px-2.5 py-1 rounded font-bold">Langkah 3</span>
+                                        <h3 className="font-bold text-sm text-emerald-400">Restore System</h3>
+                                        <p className="text-xs text-slate-400">Upload dump backup untuk mengembalikan state pesanan tepat sebelum crash.</p>
+                                        <label className="block w-full text-center bg-emerald-600 hover:bg-emerald-700 text-xs font-bold py-2 rounded-lg transition cursor-pointer text-white">
+                                            📤 Upload & Restore Dump
+                                            <input type="file" accept=".json" onChange={importBackupJSON} className="hidden" />
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div className="border-t border-slate-800 pt-4 text-xs text-slate-400 space-y-1">
+                                    <p className="font-bold text-slate-300">Indikator Keberhasilan DR Test (Kelompok 5):</p>
+                                    <p>✅ Pesanan berstatus <span className="text-amber-400">"Sedang Disiapkan"</span> kembali muncul secara presisi setelah restore.</p>
+                                    <p>✅ Tidak ada data transaksi yang hilang (*Zero Data Loss / Low RPO*).</p>
+                                </div>
+                            </div>
+                        )}
+                    </main>
+                </div>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
