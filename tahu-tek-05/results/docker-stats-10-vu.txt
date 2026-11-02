@@ -1,0 +1,4 @@
+﻿CONTAINER ID   NAME          CPU %     MEM USAGE / LIMIT     MEM %     NET I/O          BLOCK I/O         PIDS
+d87e6561f49e   fd-frontend   0.00%     15.25MiB / 6.692GiB   0.22%     2.03kB / 126B    6.69MB / 4.1kB    17
+034ce15a0ae5   fd-api        0.00%     55.89MiB / 6.692GiB   0.82%     27.9MB / 29MB    69.6MB / 0B       11
+cbb39ea4513e   fd-db         0.03%     34.03MiB / 6.692GiB   0.50%     431kB / 27.4MB   32.3MB / 6.31MB   8
